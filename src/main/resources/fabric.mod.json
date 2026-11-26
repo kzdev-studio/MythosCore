@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "mythoscore",
+  "version": "1.0.0-alpha",
+  "name": "MythosCore",
+  "description": "Hybrydowy silnik łączący Fabric z Bukkit/Spigot.",
+  "authors": [
+    "Admin"
+  ],
+  "contact": {},
+  "license": "All-Rights-Reserved",
+  "icon": "assets/mythoscore/icon.png",
+  "environment": "server",
+  "entrypoints": {
+    "main": [
+      "pl.mythoscore.MythosCoreMod"
+    ]
+  },
+  "mixins": [
+    "mythoscore.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=0.16.14",
+    "minecraft": "~1.20.1",
+    "java": ">=21",
+    "fabric-api": "*"
+  }
+}

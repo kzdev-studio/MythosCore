@@ -1,0 +1,15 @@
+{
+  "required": true,
+  "package": "pl.mythoscore.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": [
+    "PluginClassLoaderMixin",
+    "CommandPacketMixin",
+    "InventoryClickMixin",
+    "DisplayEntityMixin",
+    "TextDisplayMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}
