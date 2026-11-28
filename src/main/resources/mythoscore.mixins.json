@@ -6,6 +6,7 @@
     "PluginClassLoaderMixin",
     "CommandPacketMixin",
     "InventoryClickMixin",
+    "PlayerMoveMixin",
     "DisplayEntityMixin",
     "TextDisplayMixin"
   ],

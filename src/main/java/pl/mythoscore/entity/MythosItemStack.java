@@ -24,12 +24,33 @@ public class MythosItemStack {
         return item;
     }
 
-    // Tłumaczy Bukkit Material na Minecraft Item
+    // Tłumaczy Bukkit ItemStack na Minecraft ItemStack
     public static ItemStack toFabric(org.bukkit.inventory.ItemStack bukkitItem) {
-        if (bukkitItem.getType() == Material.DIAMOND) return new ItemStack(Items.DIAMOND);
-        if (bukkitItem.getType() == Material.EMERALD) return new ItemStack(Items.EMERALD);
-        if (bukkitItem.getType() == Material.GOLD_INGOT) return new ItemStack(Items.GOLD_INGOT);
-        if (bukkitItem.getType() == Material.PAPER) return new ItemStack(Items.PAPER);
-        return new ItemStack(Items.STONE);
+        if (bukkitItem == null || bukkitItem.getType() == Material.AIR) {
+            return ItemStack.EMPTY;
+        }
+        net.minecraft.item.Item mcItem = MythosMaterials.toFabricItem(bukkitItem.getType());
+        ItemStack stack = new ItemStack(mcItem, Math.max(1, bukkitItem.getAmount()));
+        try {
+            if (bukkitItem.hasItemMeta()) {
+                org.bukkit.inventory.meta.ItemMeta meta = bukkitItem.getItemMeta();
+                if (meta != null && meta.hasDisplayName()) {
+                    stack.setCustomName(net.minecraft.text.Text.literal(meta.getDisplayName()));
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return stack;
+    }
+
+    // Tłumaczy Minecraft ItemStack na Bukkit ItemStack (bezpieczny fallback dla modów)
+    public static org.bukkit.inventory.ItemStack fromFabric(ItemStack fabricItem) {
+        if (fabricItem == null || fabricItem.isEmpty()) {
+            return new org.bukkit.inventory.ItemStack(Material.AIR);
+        }
+        Material mat = MythosMaterials.fromFabricItem(fabricItem.getItem());
+        int amount = Math.max(1, fabricItem.getCount());
+        String customName = fabricItem.hasCustomName() ? fabricItem.getName().getString() : null;
+        return create(mat, amount, customName);
     }
 }

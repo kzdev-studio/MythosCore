@@ -9,9 +9,18 @@ import java.lang.reflect.Proxy;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class MythosWorld {
+
+    private static final Map<UUID, ServerWorld> WORLD_MAP = new ConcurrentHashMap<>();
+
+    public static ServerWorld getFabricWorld(World bukkitWorld) {
+        if (bukkitWorld == null) return null;
+        return WORLD_MAP.get(bukkitWorld.getUID());
+    }
 
     public static String toBukkitName(ServerWorld fabricWorld) {
         String path = fabricWorld.getRegistryKey().getValue().getPath();
@@ -30,6 +39,7 @@ public class MythosWorld {
     public static World wrap(ServerWorld fabricWorld) {
         String bukkitName = toBukkitName(fabricWorld);
         UUID worldUid = toWorldUuid(fabricWorld);
+        WORLD_MAP.put(worldUid, fabricWorld);
 
         return (World) Proxy.newProxyInstance(
                 World.class.getClassLoader(),
@@ -69,6 +79,61 @@ public class MythosWorld {
                     }
                     if (methodName.equals("getMinHeight")) return fabricWorld.getBottomY();
                     if (methodName.equals("getMaxHeight")) return fabricWorld.getTopY();
+                    if (methodName.equals("getBlockAt") && args != null) {
+                        if (args.length == 3 && args[0] instanceof Number x && args[1] instanceof Number y && args[2] instanceof Number z) {
+                            return MythosBlock.wrap(fabricWorld, new net.minecraft.util.math.BlockPos(x.intValue(), y.intValue(), z.intValue()));
+                        }
+                        if (args.length == 1 && args[0] instanceof org.bukkit.Location loc) {
+                            return MythosBlock.wrap(fabricWorld, new net.minecraft.util.math.BlockPos(loc.getBlockX(), loc.getBlockY(), loc.getBlockZ()));
+                        }
+                    }
+                    if (methodName.equals("getChunkAt") && args != null) {
+                        if (args.length == 2 && args[0] instanceof Number cx && args[1] instanceof Number cz) {
+                            return MythosChunk.wrap(fabricWorld, cx.intValue(), cz.intValue());
+                        }
+                        if (args.length == 1 && args[0] instanceof org.bukkit.Location loc) {
+                            return MythosChunk.wrap(fabricWorld, loc.getBlockX() >> 4, loc.getBlockZ() >> 4);
+                        }
+                        if (args.length == 1 && args[0] instanceof org.bukkit.block.Block blk) {
+                            return MythosChunk.wrap(fabricWorld, blk.getX() >> 4, blk.getZ() >> 4);
+                        }
+                    }
+                    if (methodName.equals("isChunkLoaded") && args != null && args.length == 2 && args[0] instanceof Number cx && args[1] instanceof Number cz) {
+                        return fabricWorld.isChunkLoaded(cx.intValue(), cz.intValue());
+                    }
+                    if (methodName.equals("loadChunk") && args != null && args.length >= 2 && args[0] instanceof Number cx && args[1] instanceof Number cz) {
+                        fabricWorld.getChunk(cx.intValue(), cz.intValue());
+                        return true;
+                    }
+                    if (methodName.equals("getEntities")) {
+                        List<org.bukkit.entity.Entity> entities = new ArrayList<>();
+                        for (net.minecraft.entity.Entity e : fabricWorld.iterateEntities()) {
+                            entities.add(MythosEntity.wrap(e));
+                        }
+                        return entities;
+                    }
+                    if (methodName.equals("getLivingEntities")) {
+                        List<org.bukkit.entity.LivingEntity> entities = new ArrayList<>();
+                        for (net.minecraft.entity.Entity e : fabricWorld.iterateEntities()) {
+                            if (e instanceof net.minecraft.entity.LivingEntity) {
+                                org.bukkit.entity.Entity wrapped = MythosEntity.wrap(e);
+                                if (wrapped instanceof org.bukkit.entity.LivingEntity le) {
+                                    entities.add(le);
+                                }
+                            }
+                        }
+                        return entities;
+                    }
+                    if ((methodName.equals("dropItem") || methodName.equals("dropItemNaturally"))
+                            && args != null && args.length >= 2
+                            && args[0] instanceof org.bukkit.Location loc
+                            && args[1] instanceof org.bukkit.inventory.ItemStack item) {
+                        net.minecraft.entity.ItemEntity itemEntity = new net.minecraft.entity.ItemEntity(
+                                fabricWorld, loc.getX(), loc.getY(), loc.getZ(), MythosItemStack.toFabric(item)
+                        );
+                        fabricWorld.spawnEntity(itemEntity);
+                        return MythosEntity.wrap(itemEntity);
+                    }
                     if (methodName.equals("equals")) {
                         Object other = args != null && args.length > 0 ? args[0] : null;
                         return other instanceof World w && worldUid.equals(w.getUID());

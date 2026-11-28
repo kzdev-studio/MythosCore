@@ -81,6 +81,10 @@ public class MythosServer {
                     if (methodName.equals("getScheduler")) return scheduler.createScheduler();
                     if (methodName.equals("getLogger")) return Logger.getLogger("MythosCore");
                     if (methodName.equals("getCommandMap")) return commandMap;
+                    if (methodName.equals("getPluginCommand") && args != null && args.length >= 1 && args[0] instanceof String cmdName) {
+                        org.bukkit.command.Command cmd = commandMap.getCommand(cmdName);
+                        return (cmd instanceof org.bukkit.command.PluginCommand pc) ? pc : null;
+                    }
 
                     if (methodName.equals("dispatchCommand")) {
                         return commandMap.dispatch((CommandSender) args[0], (String) args[1]);
@@ -291,6 +295,7 @@ public class MythosServer {
                                         }
                                     }
                                     if (mn.equals("enablePlugin") && a != null && a[0] instanceof Plugin pl) {
+                                        registerLoadedPlugin(pl);
                                         if (!pl.isEnabled()) {
                                             setPluginEnabledState(pl, true);
                                         }

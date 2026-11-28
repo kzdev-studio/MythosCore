@@ -57,6 +57,7 @@ public class MythosCoreMod implements ModInitializer {
 
         MythosChatListener.register();
         MythosBlockListener.register();
+        MythosDamageListener.register();
 
         // --- OBSŁUGA WEJŚCIA GRACZA ---
         ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
@@ -109,7 +110,44 @@ public class MythosCoreMod implements ModInitializer {
 
             for (String cmdName : MythosServer.getCommandMap().getKnownCommands().keySet()) {
                 try {
-                    dispatcher.register(net.minecraft.server.command.CommandManager.literal(cmdName).executes(context -> 1));
+                    dispatcher.register(
+                            net.minecraft.server.command.CommandManager.literal(cmdName)
+                                    .executes(context -> {
+                                        var player = context.getSource().getPlayer();
+                                        org.bukkit.command.CommandSender sender = (player != null)
+                                                ? MythosPlayer.wrap(player)
+                                                : Bukkit.getConsoleSender();
+                                        return MythosServer.getCommandMap().dispatch(sender, cmdName) ? 1 : 0;
+                                    })
+                                    .then(net.minecraft.server.command.CommandManager.argument("args", com.mojang.brigadier.arguments.StringArgumentType.greedyString())
+                                            .suggests((context, builder) -> {
+                                                var player = context.getSource().getPlayer();
+                                                org.bukkit.command.CommandSender sender = (player != null)
+                                                        ? MythosPlayer.wrap(player)
+                                                        : Bukkit.getConsoleSender();
+                                                String input = context.getInput();
+                                                String raw = input.startsWith("/") ? input.substring(1) : input;
+                                                java.util.List<String> suggestions = MythosServer.getCommandMap().tabComplete(sender, raw);
+                                                if (suggestions != null) {
+                                                    String remaining = builder.getRemaining().toLowerCase();
+                                                    for (String s : suggestions) {
+                                                        if (s != null && s.toLowerCase().startsWith(remaining)) {
+                                                            builder.suggest(s);
+                                                        }
+                                                    }
+                                                }
+                                                return builder.buildFuture();
+                                            })
+                                            .executes(context -> {
+                                                var player = context.getSource().getPlayer();
+                                                org.bukkit.command.CommandSender sender = (player != null)
+                                                        ? MythosPlayer.wrap(player)
+                                                        : Bukkit.getConsoleSender();
+                                                String args = com.mojang.brigadier.arguments.StringArgumentType.getString(context, "args");
+                                                return MythosServer.getCommandMap().dispatch(sender, cmdName + " " + args) ? 1 : 0;
+                                            })
+                                    )
+                    );
                 } catch (Exception e) {
                     LOGGER.error("Błąd rejestracji komendy w Fabric: " + cmdName, e);
                 }

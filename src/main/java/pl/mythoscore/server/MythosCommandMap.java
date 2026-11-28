@@ -30,6 +30,14 @@ public class MythosCommandMap implements CommandMap {
     public boolean register(String label, String fallbackPrefix, Command command) {
         knownCommands.put(label.toLowerCase(), command);
         knownCommands.put((fallbackPrefix + ":" + label).toLowerCase(), command);
+        if (command.getAliases() != null) {
+            for (String alias : command.getAliases()) {
+                if (alias != null && !alias.isBlank()) {
+                    knownCommands.putIfAbsent(alias.toLowerCase(), command);
+                    knownCommands.putIfAbsent((fallbackPrefix + ":" + alias).toLowerCase(), command);
+                }
+            }
+        }
         return true;
     }
 
@@ -62,13 +70,35 @@ public class MythosCommandMap implements CommandMap {
     // Pierwsza wersja tabComplete
     @Override
     public List<String> tabComplete(CommandSender sender, String cmdLine) throws IllegalArgumentException {
-        return null;
+        return tabComplete(sender, cmdLine, null);
     }
 
     // Druga wersja tabComplete (z lokalizacją)
     @Override
     public List<String> tabComplete(CommandSender sender, String cmdLine, Location location) throws IllegalArgumentException {
-        return null;
+        if (cmdLine == null || sender == null) {
+            return java.util.Collections.emptyList();
+        }
+        String line = cmdLine.startsWith("/") ? cmdLine.substring(1) : cmdLine;
+        int spaceIndex = line.indexOf(' ');
+        if (spaceIndex == -1) {
+            String prefix = line.toLowerCase();
+            java.util.List<String> matches = new java.util.ArrayList<>();
+            for (String key : knownCommands.keySet()) {
+                if (key.startsWith(prefix)) {
+                    matches.add(key);
+                }
+            }
+            return matches;
+        }
+        String cmdName = line.substring(0, spaceIndex).toLowerCase();
+        Command command = knownCommands.get(cmdName);
+        if (command == null) {
+            return java.util.Collections.emptyList();
+        }
+        String argLine = line.substring(spaceIndex + 1);
+        String[] args = argLine.split(" ", -1);
+        return command.tabComplete(sender, cmdName, args);
     }
 
     // Metoda pomocnicza dla naszego silnika.

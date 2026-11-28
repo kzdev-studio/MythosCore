@@ -1,6 +1,7 @@
 package pl.mythoscore.mixin;
 
 import net.minecraft.network.packet.c2s.play.ClickSlotC2SPacket;
+import net.minecraft.network.packet.c2s.play.CloseHandledScreenC2SPacket;
 import net.minecraft.screen.GenericContainerScreenHandler;
 import net.minecraft.server.network.ServerPlayNetworkHandler;
 import net.minecraft.server.network.ServerPlayerEntity;
@@ -10,6 +11,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.inventory.ClickType;
 import org.bukkit.event.inventory.InventoryAction;
 import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryView;
@@ -52,7 +54,7 @@ public class InventoryClickMixin {
                 net.minecraft.item.ItemStack fabricStack = handler.getSlot(slot).getStack();
                 ItemStack clickedItem = null;
                 if (fabricStack != null && !fabricStack.isEmpty()) {
-                    clickedItem = MythosItemStack.create(org.bukkit.Material.DIAMOND, 1, "Ranga VIP");
+                    clickedItem = MythosItemStack.fromFabric(fabricStack);
                 }
 
                 final Inventory finalBukkitInv = bukkitInv;
@@ -101,6 +103,45 @@ public class InventoryClickMixin {
                     this.player.currentScreenHandler.syncState(); // Synchronizujemy ekwipunek, żeby diament nie zniknął
                 }
             }
+        }
+    }
+
+    @Inject(method = "onCloseHandledScreen", at = @At("HEAD"))
+    private void mythos$onCloseHandledScreen(CloseHandledScreenC2SPacket packet, CallbackInfo ci) {
+        if (this.player.currentScreenHandler instanceof GenericContainerScreenHandler) {
+            Inventory bukkitInv = null;
+            MythosInventory mythosInv = null;
+            for (var entry : MythosInventory.INVENTORY_MAP.entrySet()) {
+                bukkitInv = entry.getKey();
+                mythosInv = entry.getValue();
+                break;
+            }
+            if (bukkitInv == null || mythosInv == null) return;
+
+            final Inventory finalBukkitInv = bukkitInv;
+            final String finalTitle = mythosInv.getTitle();
+            final Player bukkitPlayer = MythosPlayer.wrap(this.player);
+
+            Inventory dummyBottom = (Inventory) Proxy.newProxyInstance(
+                    Inventory.class.getClassLoader(),
+                    new Class<?>[]{Inventory.class},
+                    (p, m, a) -> {
+                        if (m.getName().equals("getSize")) return 36;
+                        return MythosServer.getSafeDefault(m.getReturnType());
+                    }
+            );
+
+            InventoryView view = new InventoryView() {
+                @Override public Inventory getTopInventory() { return finalBukkitInv; }
+                @Override public Inventory getBottomInventory() { return dummyBottom; }
+                @Override public HumanEntity getPlayer() { return bukkitPlayer; }
+                @Override public InventoryType getType() { return InventoryType.CHEST; }
+                @Override public String getTitle() { return finalTitle; }
+                @Override public String getOriginalTitle() { return finalTitle; }
+                @Override public void setTitle(String title) {}
+            };
+
+            Bukkit.getPluginManager().callEvent(new InventoryCloseEvent(view));
         }
     }
 }

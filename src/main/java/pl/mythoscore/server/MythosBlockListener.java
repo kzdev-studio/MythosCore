@@ -2,13 +2,17 @@ package pl.mythoscore.server;
 
 import net.fabricmc.fabric.api.event.player.AttackBlockCallback;
 import net.fabricmc.fabric.api.event.player.UseBlockCallback;
+import net.fabricmc.fabric.api.event.player.UseItemCallback;
 import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.server.world.ServerWorld;
 import net.minecraft.util.ActionResult;
+import net.minecraft.util.Hand;
+import net.minecraft.util.TypedActionResult;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Direction;
 import org.bukkit.Bukkit;
-import org.bukkit.Material;
 import org.bukkit.block.Block;
-import org.bukkit.block.BlockState;
+import org.bukkit.block.BlockFace;
 import org.bukkit.entity.Player;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.block.BlockBreakEvent;
@@ -17,8 +21,9 @@ import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
 import pl.mythoscore.MythosCoreMod;
+import pl.mythoscore.entity.MythosBlock;
+import pl.mythoscore.entity.MythosItemStack;
 import pl.mythoscore.entity.MythosPlayer;
-import java.lang.reflect.Proxy;
 
 public class MythosBlockListener {
     public static void register() {
@@ -33,18 +38,23 @@ public class MythosBlockListener {
                 return ActionResult.FAIL;
             }
 
-            BlockBreakEvent event = new BlockBreakEvent(createFakeBlock(pos), bukkitPlayer);
+            ServerWorld sw = serverPlayer.getServerWorld();
+            Block bukkitBlock = MythosBlock.wrap(sw, pos);
+            BlockBreakEvent event = new BlockBreakEvent(bukkitBlock, bukkitPlayer);
             Bukkit.getPluginManager().callEvent(event);
             return event.isCancelled() ? ActionResult.FAIL : ActionResult.PASS;
         });
 
-        // 2. Stawianie bloku i interakcja
+        // 2. Stawianie bloku i interakcja z blokiem
         UseBlockCallback.EVENT.register((player, world, hand, hitResult) -> {
             if (!(player instanceof ServerPlayerEntity serverPlayer)) return ActionResult.PASS;
             Player bukkitPlayer = MythosPlayer.wrap(serverPlayer);
             String worldName = serverPlayer.getWorld().getRegistryKey().getValue().getPath();
             BlockPos pos = hitResult.getBlockPos();
-            Block bukkitBlock = createFakeBlock(pos);
+            ServerWorld sw = serverPlayer.getServerWorld();
+            Block bukkitBlock = MythosBlock.wrap(sw, pos);
+            EquipmentSlot eqSlot = (hand == Hand.OFF_HAND) ? EquipmentSlot.OFF_HAND : EquipmentSlot.HAND;
+            ItemStack itemInHand = MythosItemStack.fromFabric(player.getStackInHand(hand));
 
             // Sprawdzamy, czy gracz próbuje POSTAWIĆ blok
             if (player.getStackInHand(hand).getItem() instanceof net.minecraft.item.BlockItem) {
@@ -53,42 +63,49 @@ public class MythosBlockListener {
                     return ActionResult.FAIL;
                 }
 
-                // ZABEZPIECZENIE: Podajemy pusty przedmiot, bo nie mamy jeszcze ekwipunku
-                ItemStack safeItem = new ItemStack(Material.STONE);
-
-                BlockPlaceEvent placeEvent = new BlockPlaceEvent(bukkitBlock, bukkitBlock.getState(), bukkitBlock,
-                        safeItem, bukkitPlayer, true, EquipmentSlot.HAND);
+                BlockPlaceEvent placeEvent = new BlockPlaceEvent(
+                        bukkitBlock, bukkitBlock.getState(), bukkitBlock,
+                        itemInHand, bukkitPlayer, true, eqSlot
+                );
                 Bukkit.getPluginManager().callEvent(placeEvent);
                 if (placeEvent.isCancelled()) return ActionResult.FAIL;
             }
 
-            // ZABEZPIECZENIE: Podajemy pusty przedmiot dla interakcji
-            ItemStack safeItem = new ItemStack(Material.AIR);
-
             PlayerInteractEvent interactEvent = new PlayerInteractEvent(
-                    bukkitPlayer, Action.RIGHT_CLICK_BLOCK, safeItem, bukkitBlock,
-                    org.bukkit.block.BlockFace.UP, EquipmentSlot.HAND
+                    bukkitPlayer, Action.RIGHT_CLICK_BLOCK, itemInHand, bukkitBlock,
+                    toBlockFace(hitResult.getSide()), eqSlot
             );
             Bukkit.getPluginManager().callEvent(interactEvent);
             return interactEvent.isCancelled() ? ActionResult.FAIL : ActionResult.PASS;
         });
+
+        // 3. Interakcja w powietrzu (prawy klik itemem)
+        UseItemCallback.EVENT.register((player, world, hand) -> {
+            net.minecraft.item.ItemStack mcStack = player.getStackInHand(hand);
+            if (!(player instanceof ServerPlayerEntity serverPlayer)) {
+                return TypedActionResult.pass(mcStack);
+            }
+            Player bukkitPlayer = MythosPlayer.wrap(serverPlayer);
+            EquipmentSlot eqSlot = (hand == Hand.OFF_HAND) ? EquipmentSlot.OFF_HAND : EquipmentSlot.HAND;
+            ItemStack itemInHand = MythosItemStack.fromFabric(mcStack);
+
+            PlayerInteractEvent interactEvent = new PlayerInteractEvent(
+                    bukkitPlayer, Action.RIGHT_CLICK_AIR, itemInHand, null, BlockFace.SELF, eqSlot
+            );
+            Bukkit.getPluginManager().callEvent(interactEvent);
+            return interactEvent.isCancelled() ? TypedActionResult.fail(mcStack) : TypedActionResult.pass(mcStack);
+        });
     }
 
-    private static Block createFakeBlock(BlockPos pos) {
-        return (Block) Proxy.newProxyInstance(Block.class.getClassLoader(), new Class<?>[]{Block.class}, (proxy, method, args) -> {
-            if (method.getName().equals("getType")) return Material.STONE;
-            if (method.getName().equals("getX")) return pos.getX();
-            if (method.getName().equals("getY")) return pos.getY();
-            if (method.getName().equals("getZ")) return pos.getZ();
-            if (method.getName().equals("getLocation")) return new org.bukkit.Location(null, pos.getX(), pos.getY(), pos.getZ());
-            if (method.getName().equals("getState")) {
-                return (BlockState) Proxy.newProxyInstance(BlockState.class.getClassLoader(), new Class<?>[]{BlockState.class}, (p, m, a) -> {
-                    if (m.getName().equals("getType")) return Material.STONE;
-                    if (m.getName().equals("getBlock")) return proxy;
-                    return MythosServer.getSafeDefault(m.getReturnType());
-                });
-            }
-            return MythosServer.getSafeDefault(method.getReturnType());
-        });
+    private static BlockFace toBlockFace(Direction dir) {
+        if (dir == null) return BlockFace.UP;
+        return switch (dir) {
+            case DOWN -> BlockFace.DOWN;
+            case NORTH -> BlockFace.NORTH;
+            case SOUTH -> BlockFace.SOUTH;
+            case WEST -> BlockFace.WEST;
+            case EAST -> BlockFace.EAST;
+            default -> BlockFace.UP;
+        };
     }
 }

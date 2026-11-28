@@ -86,9 +86,12 @@ public class MythosPluginLoader {
             try {
                 MythosCoreMod.LOGGER.info("   [ENABLE] Uruchamianie {}...", plugin.getName());
                 Bukkit.getPluginManager().enablePlugin(plugin);
-                enabledPlugins.add(plugin);
+                if (plugin.isEnabled()) {
+                    enabledPlugins.add(plugin);
+                }
                 MythosCoreMod.LOGGER.info("   [SUCCESS] {} uruchomiony (enabled={})!", plugin.getName(), plugin.isEnabled());
             } catch (Throwable t) {
+                MythosServer.setPluginEnabledState(plugin, false);
                 MythosCoreMod.LOGGER.error("   [ERROR] {} wyłożył się w onEnable(): {}", plugin.getName(), t.getMessage(), t);
             }
         }
@@ -110,6 +113,11 @@ public class MythosPluginLoader {
     }
 
     private void registerCommands(Plugin plugin, PluginDescriptionFile desc) {
+        List<org.bukkit.command.Command> parsed = org.bukkit.command.PluginCommandYamlParser.parse(plugin);
+        if (parsed != null && !parsed.isEmpty()) {
+            MythosServer.getCommandMap().registerAll(plugin.getName(), parsed);
+            return;
+        }
         if (desc.getCommands() == null) return;
         for (String cmdName : desc.getCommands().keySet()) {
             MythosPluginCommand command = new MythosPluginCommand(cmdName, plugin);

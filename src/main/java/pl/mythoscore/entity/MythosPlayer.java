@@ -13,9 +13,11 @@ import net.minecraft.sound.SoundCategory;
 import net.minecraft.sound.SoundEvent;
 import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
+import net.minecraft.world.GameMode;
 import org.bukkit.Location;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
+import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
@@ -24,11 +26,17 @@ import pl.mythoscore.server.MythosServer;
 
 import java.lang.reflect.Proxy;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import org.bukkit.permissions.PermissibleBase;
+import org.bukkit.permissions.Permission;
+import org.bukkit.permissions.PermissionAttachment;
+import org.bukkit.plugin.Plugin;
 
 public class MythosPlayer {
 
     public static final Map<String, ServerPlayerEntity> PLAYER_MAP = new ConcurrentHashMap<>();
+    private static final Map<UUID, PermissibleBase> PERMISSIBLES = new ConcurrentHashMap<>();
 
     public static Player wrap(ServerPlayerEntity fabricPlayer) {
         Player bukkitPlayer = (Player) Proxy.newProxyInstance(
@@ -43,6 +51,23 @@ public class MythosPlayer {
                     if (methodName.equals("isOp")) {
                         return MythosCoreMod.MC_SERVER != null
                                 && MythosCoreMod.MC_SERVER.getPlayerManager().isOperator(fabricPlayer.getGameProfile());
+                    }
+                    if (methodName.equals("setOp") && args != null && args.length > 0 && args[0] instanceof Boolean op) {
+                        if (MythosCoreMod.MC_SERVER != null) {
+                            if (op) {
+                                MythosCoreMod.MC_SERVER.getPlayerManager().addToOperators(fabricPlayer.getGameProfile());
+                            } else {
+                                MythosCoreMod.MC_SERVER.getPlayerManager().removeFromOperators(fabricPlayer.getGameProfile());
+                            }
+                        }
+                        return null;
+                    }
+                    if (methodName.equals("getGameMode")) {
+                        return toBukkitGameMode(fabricPlayer.interactionManager.getGameMode());
+                    }
+                    if (methodName.equals("setGameMode") && args != null && args.length > 0 && args[0] instanceof org.bukkit.GameMode gm) {
+                        fabricPlayer.changeGameMode(toFabricGameMode(gm));
+                        return null;
                     }
                     if (methodName.equals("equals")) {
                         Object other = (args != null && args.length > 0) ? args[0] : null;
@@ -78,16 +103,87 @@ public class MythosPlayer {
                     if (methodName.equals("getLocation")) {
                         return MythosLocation.wrap(
                                 (net.minecraft.server.world.ServerWorld) fabricPlayer.getWorld(),
-                                fabricPlayer.getX(), fabricPlayer.getY(), fabricPlayer.getZ()
+                                fabricPlayer.getX(), fabricPlayer.getY(), fabricPlayer.getZ(),
+                                fabricPlayer.getYaw(), fabricPlayer.getPitch()
                         );
                     }
-                    if (methodName.equals("teleport")) {
-                        Location loc = (Location) args[0];
-                        fabricPlayer.teleport(
-                                (net.minecraft.server.world.ServerWorld) fabricPlayer.getServer().getOverworld(),
-                                loc.getX(), loc.getY(), loc.getZ(), loc.getYaw(), loc.getPitch()
+                    if (methodName.equals("getEyeLocation")) {
+                        return MythosLocation.wrap(
+                                (net.minecraft.server.world.ServerWorld) fabricPlayer.getWorld(),
+                                fabricPlayer.getX(), fabricPlayer.getY() + fabricPlayer.getStandingEyeHeight(), fabricPlayer.getZ(),
+                                fabricPlayer.getYaw(), fabricPlayer.getPitch()
                         );
-                        return true;
+                    }
+                    if (methodName.equals("teleport") && args != null && args.length > 0) {
+                        Location loc = null;
+                        if (args[0] instanceof Location l) {
+                            loc = l;
+                        } else if (args[0] instanceof Entity ent) {
+                            loc = ent.getLocation();
+                        }
+                        if (loc != null) {
+                            net.minecraft.server.world.ServerWorld targetWorld = MythosWorld.getFabricWorld(loc.getWorld());
+                            if (targetWorld == null) {
+                                targetWorld = fabricPlayer.getServerWorld();
+                            }
+                            fabricPlayer.teleport(
+                                    targetWorld,
+                                    loc.getX(), loc.getY(), loc.getZ(), loc.getYaw(), loc.getPitch()
+                            );
+                            return true;
+                        }
+                        return false;
+                    }
+                    if (methodName.equals("getEntityId")) return fabricPlayer.getId();
+                    if (methodName.equals("isDead")) return fabricPlayer.isDead();
+                    if (methodName.equals("getHealth")) return (double) fabricPlayer.getHealth();
+                    if (methodName.equals("setHealth") && args != null && args.length > 0 && args[0] instanceof Number n) {
+                        fabricPlayer.setHealth(n.floatValue());
+                        return null;
+                    }
+                    if (methodName.equals("getMaxHealth")) return (double) fabricPlayer.getMaxHealth();
+                    if (methodName.equals("getFoodLevel")) return fabricPlayer.getHungerManager().getFoodLevel();
+                    if (methodName.equals("setFoodLevel") && args != null && args.length > 0 && args[0] instanceof Number n) {
+                        fabricPlayer.getHungerManager().setFoodLevel(n.intValue());
+                        return null;
+                    }
+                    if (methodName.equals("getSaturation")) return fabricPlayer.getHungerManager().getSaturationLevel();
+                    if (methodName.equals("setSaturation") && args != null && args.length > 0 && args[0] instanceof Number n) {
+                        fabricPlayer.getHungerManager().setSaturationLevel(n.floatValue());
+                        return null;
+                    }
+                    if (methodName.equals("isSneaking")) return fabricPlayer.isSneaking();
+                    if (methodName.equals("setSneaking") && args != null && args.length > 0 && args[0] instanceof Boolean b) {
+                        fabricPlayer.setSneaking(b);
+                        return null;
+                    }
+                    if (methodName.equals("isSprinting")) return fabricPlayer.isSprinting();
+                    if (methodName.equals("setSprinting") && args != null && args.length > 0 && args[0] instanceof Boolean b) {
+                        fabricPlayer.setSprinting(b);
+                        return null;
+                    }
+                    if (methodName.equals("getAllowFlight")) return fabricPlayer.getAbilities().allowFlying;
+                    if (methodName.equals("setAllowFlight") && args != null && args.length > 0 && args[0] instanceof Boolean b) {
+                        fabricPlayer.getAbilities().allowFlying = b;
+                        if (!b) fabricPlayer.getAbilities().flying = false;
+                        fabricPlayer.sendAbilitiesUpdate();
+                        return null;
+                    }
+                    if (methodName.equals("isFlying")) return fabricPlayer.getAbilities().flying;
+                    if (methodName.equals("setFlying") && args != null && args.length > 0 && args[0] instanceof Boolean b) {
+                        fabricPlayer.getAbilities().flying = b;
+                        fabricPlayer.sendAbilitiesUpdate();
+                        return null;
+                    }
+                    if (methodName.equals("setFlySpeed") && args != null && args.length > 0 && args[0] instanceof Number n) {
+                        fabricPlayer.getAbilities().setFlySpeed(n.floatValue() / 2.0f);
+                        fabricPlayer.sendAbilitiesUpdate();
+                        return null;
+                    }
+                    if (methodName.equals("setWalkSpeed") && args != null && args.length > 0 && args[0] instanceof Number n) {
+                        fabricPlayer.getAbilities().setWalkSpeed(n.floatValue() / 2.0f);
+                        fabricPlayer.sendAbilitiesUpdate();
+                        return null;
                     }
 
                     if (methodName.equals("openInventory")) {
@@ -98,13 +194,67 @@ public class MythosPlayer {
                     }
 
                     if (methodName.equals("hasPermission")) {
-                        String permission = (String) args[0];
-                        return MythosCoreMod.permissionManager.hasPermission(fabricPlayer.getName().getString(), permission);
+                        PermissibleBase permBase = PERMISSIBLES.computeIfAbsent(fabricPlayer.getUuid(), u -> new PermissibleBase((Player) proxy));
+                        if (args != null && args.length > 0) {
+                            if (args[0] instanceof String permName) {
+                                if (permBase.isPermissionSet(permName)) {
+                                    return permBase.hasPermission(permName);
+                                }
+                                return permBase.hasPermission(permName)
+                                        || MythosCoreMod.permissionManager.hasPermission(fabricPlayer.getName().getString(), permName);
+                            }
+                            if (args[0] instanceof Permission perm) {
+                                if (permBase.isPermissionSet(perm)) {
+                                    return permBase.hasPermission(perm);
+                                }
+                                return permBase.hasPermission(perm)
+                                        || MythosCoreMod.permissionManager.hasPermission(fabricPlayer.getName().getString(), perm.getName());
+                            }
+                        }
+                        return false;
+                    }
+                    if (methodName.equals("isPermissionSet") && args != null && args.length > 0) {
+                        PermissibleBase permBase = PERMISSIBLES.computeIfAbsent(fabricPlayer.getUuid(), u -> new PermissibleBase((Player) proxy));
+                        if (args[0] instanceof String s) return permBase.isPermissionSet(s);
+                        if (args[0] instanceof Permission p) return permBase.isPermissionSet(p);
+                    }
+                    if (methodName.equals("addAttachment") && args != null) {
+                        PermissibleBase permBase = PERMISSIBLES.computeIfAbsent(fabricPlayer.getUuid(), u -> new PermissibleBase((Player) proxy));
+                        if (args.length == 1 && args[0] instanceof Plugin pl) return permBase.addAttachment(pl);
+                        if (args.length == 2 && args[0] instanceof Plugin pl && args[1] instanceof Number ticks) {
+                            return permBase.addAttachment(pl, ticks.intValue());
+                        }
+                        if (args.length == 3 && args[0] instanceof Plugin pl && args[1] instanceof String name && args[2] instanceof Boolean val) {
+                            return permBase.addAttachment(pl, name, val);
+                        }
+                        if (args.length == 4 && args[0] instanceof Plugin pl && args[1] instanceof String name && args[2] instanceof Boolean val && args[3] instanceof Number ticks) {
+                            return permBase.addAttachment(pl, name, val, ticks.intValue());
+                        }
+                    }
+                    if (methodName.equals("removeAttachment") && args != null && args.length == 1 && args[0] instanceof PermissionAttachment att) {
+                        PermissibleBase permBase = PERMISSIBLES.computeIfAbsent(fabricPlayer.getUuid(), u -> new PermissibleBase((Player) proxy));
+                        permBase.removeAttachment(att);
+                        return null;
+                    }
+                    if (methodName.equals("recalculatePermissions")) {
+                        PermissibleBase permBase = PERMISSIBLES.computeIfAbsent(fabricPlayer.getUuid(), u -> new PermissibleBase((Player) proxy));
+                        permBase.recalculatePermissions();
+                        return null;
+                    }
+                    if (methodName.equals("getEffectivePermissions")) {
+                        PermissibleBase permBase = PERMISSIBLES.computeIfAbsent(fabricPlayer.getUuid(), u -> new PermissibleBase((Player) proxy));
+                        return permBase.getEffectivePermissions();
                     }
 
                     if (methodName.equals("sendMessage")) {
-                        if (args != null && args.length > 0 && args[0] instanceof String) {
-                            fabricPlayer.sendMessage(Text.literal((String) args[0]), false);
+                        if (args != null && args.length > 0) {
+                            if (args[0] instanceof String msg) {
+                                fabricPlayer.sendMessage(Text.literal(msg), false);
+                            } else if (args[0] instanceof String[] msgs) {
+                                for (String msg : msgs) {
+                                    if (msg != null) fabricPlayer.sendMessage(Text.literal(msg), false);
+                                }
+                            }
                         }
                         return null;
                     }
@@ -263,5 +413,25 @@ public class MythosPlayer {
             }
         }
         return null;
+    }
+
+    private static org.bukkit.GameMode toBukkitGameMode(GameMode mcMode) {
+        if (mcMode == null) return org.bukkit.GameMode.SURVIVAL;
+        return switch (mcMode) {
+            case CREATIVE -> org.bukkit.GameMode.CREATIVE;
+            case ADVENTURE -> org.bukkit.GameMode.ADVENTURE;
+            case SPECTATOR -> org.bukkit.GameMode.SPECTATOR;
+            default -> org.bukkit.GameMode.SURVIVAL;
+        };
+    }
+
+    private static GameMode toFabricGameMode(org.bukkit.GameMode bukkitMode) {
+        if (bukkitMode == null) return GameMode.SURVIVAL;
+        return switch (bukkitMode) {
+            case CREATIVE -> GameMode.CREATIVE;
+            case ADVENTURE -> GameMode.ADVENTURE;
+            case SPECTATOR -> GameMode.SPECTATOR;
+            default -> GameMode.SURVIVAL;
+        };
     }
 }
